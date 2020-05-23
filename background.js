@@ -2,7 +2,13 @@ const defaultRPC = '[{"name":"ARIA2 RPC","url":"http://localhost:6800/jsonrpc", 
 var CurrentTabUrl = "about:blank";
 var MonitorId = -1;
 var MonitorRate = 3000;
-const fetchRpcList = () => JSON.parse(localStorage.getItem("rpc_list") || defaultRPC)
+
+const fetchRpcList = () => JSON.parse(localStorage.getItem("rpc_list") || defaultRPC);
+const fetchWhiteSiteList = () => JSON.parse(localStorage.getItem("white_site"));
+const fetchBlackSiteList = () => JSON.parse(localStorage.getItem("black_site"));
+const fetchWhiteExtList = () => JSON.parse(localStorage.getItem("white_ext"));
+const fetchBlackExtList = () => JSON.parse(localStorage.getItem("black_ext"));
+
 var HttpSendRead = function(info) {
     Promise.prototype.done = Promise.prototype.then;
     Promise.prototype.fail = Promise.prototype.catch;
@@ -152,69 +158,70 @@ function aria2Send(link, rpcUrl, downloadItem) {
 
 }
 
-function getRpcUrl(url, rpc_list) {
-    for (var i = 1; i < rpc_list.length; i++) {
-      var patterns = rpc_list[i]['pattern'].split(',');
-      for (var j in patterns) {
-        var pattern = patterns[j].trim();
-        if (matchRule(url, pattern)) {
-          return rpc_list[i]['url'];
+function getRpcUrl(url) {
+    const rpcList = fetchRpcList();
+    for (const rpc of rpcList) {
+        const patterns = rpc['pattern'].split(',');
+        for (const pattern of patterns) {
+            const trimmedPattern = pattern.trim();
+            if (matchRule(url, trimmedPattern)) {
+                return rpc['url'];
+            }
         }
-      }
     }
-    return rpc_list[0]['url'];
+    return rpcList[0]['url'];
 }
 
 function matchRule(str, rule) {
     return new RegExp("^" + rule.split("*").join(".*") + "$").test(str);
 }
 
+
+function isSiteInRules(url, rules) {
+    return rules.some(rule => matchRule(url.hostname, rule));
+}
+
+function isExtensionInRules(filename, rules) {
+    return rules.some(ext => filename.endsWith(ext));
+}
+
 function isCapture(downloadItem) {
-    var fileSize = localStorage.getItem("fileSize");
-    var whiteSiteList = JSON.parse(localStorage.getItem("white_site"));
-    var blackSiteList = JSON.parse(localStorage.getItem("black_site"));
-    var whiteExtList = JSON.parse(localStorage.getItem("white_ext"));
-    var blackExtList = JSON.parse(localStorage.getItem("black_ext"));
-    var currentTabUrl = new URL(CurrentTabUrl);
-    var url = new URL(downloadItem.referrer || downloadItem.url);
+    const isError = Boolean(downloadItem.error);
+    const isNotInProgress = downloadItem.state === "in_progress";
+    const isNotHTTP = !downloadItem.finalUrl.startsWith("http");
 
-    if (downloadItem.error || downloadItem.state != "in_progress" || !downloadItem.finalUrl.startsWith("http")) {
+    if (isError || isNotInProgress || isNotHTTP) {
         return false;
     }
 
-    for (var i in whiteSiteList) {
-        if (matchRule(currentTabUrl.hostname, whiteSiteList[i]) || matchRule(url.hostname, whiteSiteList[i])) {
-            return true;
-        }
-    }
-    for (var i in blackSiteList) {
-        if (matchRule(currentTabUrl.hostname, blackSiteList[i]) || matchRule(url.hostname, blackSiteList[i])) {
-            return false;
-        }
+    const fileSize = localStorage.getItem("fileSize");
+    const whiteSiteList = fetchWhiteSiteList();
+    const blackSiteList = fetchBlackSiteList();
+    const whiteExtList = fetchWhiteExtList();
+    const blackExtList = fetchBlackExtList();
+    const currentTabUrl = new URL(CurrentTabUrl);
+    const url = new URL(downloadItem.referrer || downloadItem.url);
+    const isBigEnough = downloadItem.fileSize >= fileSize * 1024 * 1024;
+
+    const isLegalExt = isExtensionInRules(downloadItem.filename, whiteExtList);
+    const isIllegalExt = isExtensionInRules(downloadItem.filename, blackExtList);
+    const isLegalSite = isSiteInRules(currentTabUrl.hostname, whiteSiteList) || isSiteInRules(url.hostname, whiteSiteList);
+    const isIllegalSite = isSiteInRules(currentTabUrl.hostname, blackSiteList) || isSiteInRules(url.hostname, blackSiteList);
+
+    if(isIllegalExt || isIllegalSite) {
+        return false;
     }
 
-    for (var i in whiteExtList) {
-        if (downloadItem.filename.endsWith(whiteExtList[i])) {
-            return true;
-        }
-    }
-    for (var i in blackExtList) {
-        if (downloadItem.filename.endsWith(blackExtList[i])) {
-            return false;
-        }
-    }
-
-    if (downloadItem.fileSize >= fileSize * 1024 * 1024) {
+    if (isLegalExt || isLegalSite) {
         return true;
-    } else {
-        return false;
     }
+
+    return isBigEnough;
 }
 
 function isCaptureFinalUrl() {
     var finalUrl = localStorage.getItem("finalUrl");
     return finalUrl == "true";
-
 }
 
 function enableCapture() {
@@ -249,8 +256,8 @@ function disableCapture() {
 
 function captureDownload(downloadItem, suggestion) {
 
-    var askBeforeDownload = localStorage.getItem("askBeforeDownload");
-    var integration = localStorage.getItem("integration");
+    const askBeforeDownload = localStorage.getItem("askBeforeDownload");
+    const integration = localStorage.getItem("integration");
     if (downloadItem.byExtensionId == "gbdinbbamaniaidalikeiclecfbpgphh") {
         //workaround for filename ignorant assigned by extension "音视频下载"
         return true;
@@ -258,22 +265,15 @@ function captureDownload(downloadItem, suggestion) {
     suggestion();
     if (integration == "true" && isCapture(downloadItem)) {
         chrome.downloads.cancel(downloadItem.id);
-        if (askBeforeDownload == "true") {
-            if (isCaptureFinalUrl()) {
-                launchUI(downloadItem.finalUrl, downloadItem.referrer);
-            } else {
-                launchUI(downloadItem.url, downloadItem.referrer);
-            }
-        } else {
-            var rpc_list = JSON.parse(localStorage.getItem("rpc_list") || defaultRPC);
-            if (isCaptureFinalUrl()) {
-                var rpc_url = getRpcUrl(downloadItem.finalUrl, rpc_list);
-                aria2Send(downloadItem.finalUrl, rpc_url, downloadItem);
-            } else {
-                var rpc_url = getRpcUrl(downloadItem.url, rpc_list);
-                aria2Send(downloadItem.url, rpc_url, downloadItem);
-            }
-        }
+        const theUrl = isCaptureFinalUrl()
+            ? downloadItem.finalUrl
+            : downloadItem.url;
+
+        const rpcUrl = getRpcUrl(theUrl);
+
+        askBeforeDownload === "true"
+            ? launchUI(theUrl, downloadItem.referrer)
+            : aria2Send(theUrl, rpcUrl, downloadItem);
     }
 
 }
