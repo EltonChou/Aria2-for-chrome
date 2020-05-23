@@ -576,11 +576,10 @@ window.addEventListener('storage', function(se) {
  */
 chrome.runtime.onMessageExternal.addListener (
     function (downloadItem) {
-        var allowExternalRequest = localStorage.getItem("allowExternalRequest");
+        const allowExternalRequest = localStorage.getItem("allowExternalRequest");
         if (allowExternalRequest == "true"){
-            const rpc_list = fetchRpcList();
-            var rpc_url = getRpcUrl(downloadItem.url, rpc_list);
-            aria2Send(downloadItem.url, rpc_url, downloadItem);
+            const rpcUrl = getRpcUrl(downloadItem.url);
+            aria2Send(downloadItem.url, rpcUrl, downloadItem);
         }
     }
 );
