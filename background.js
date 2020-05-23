@@ -84,8 +84,7 @@ function aria2Send(link, rpcUrl, downloadItem) {
         "url": link
     }, function(cookies) {
         var format_cookies = [];
-        for (var i in cookies) {
-            var cookie = cookies[i];
+        for (const cookie of cookies) {
             format_cookies.push(cookie.name + "=" + cookie.value);
         }
         var header = [];
@@ -293,11 +292,11 @@ function launchUI(downloadURL, referrer) {
         //clicked from notification or sbrowserAction icon, only launch UI.
     }
     chrome.tabs.query({ "url": index }, function (tabs) {
-        for (var i in tabs) {
-            chrome.windows.update(tabs[i].windowId, {
+        for (const tab of tabs) {
+            chrome.windows.update(tab.windowId, {
                 focused: true
             });
-            chrome.tabs.update(tabs[i].id, {
+            chrome.tabs.update(tab.id, {
                 selected: true,
                 url: url
             });
@@ -399,9 +398,9 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
         updateOptionMenu(tab);
         var contextMenus = localStorage.getItem("contextMenus");
         if (contextMenus == "true" || contextMenus == null) {
-            var rpc_list = JSON.parse(localStorage.getItem("rpc_list") || defaultRPC);
-            for (var i in rpc_list) {
-                addContextMenu(rpc_list[i]['url'], strExport + rpc_list[i]['name']);
+            const rpcList = fetchRpcList()
+            for (const rpc of rpcList) {
+                addContextMenu(rpc['url'], strExport + rpc['name']);
             }
             localStorage.setItem("contextMenus", true);
         }
